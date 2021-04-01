@@ -19,7 +19,7 @@ function task_discord_right_sync($task)
     if (discord_right_sync_roles($task))
         {
 
-        // add_task_log($task, 'All roles synced');
+        add_task_log($task, 'All roles synced');
 
         }
       else
