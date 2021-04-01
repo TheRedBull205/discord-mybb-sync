@@ -71,7 +71,7 @@ function discord_right_sync_info()
         "website" => "https://github.com/opt-natter/discord-mybb-sync",
         "author" => "natter",
         "authorsite" => "https://www.opt-community.de/Forum/user-20.html",
-        "version" => "0.6.2",
+        "version" => "0.7.0",
         "guid" => "",
         "codename" => "",
         "compatibility" => "16*,18*"
@@ -393,6 +393,7 @@ function discord_right_sync_patch_querry_discord($path,$content)
     global $mybb;
     require_once UNIREST;
     
+	//add_task_log($task, 'Debug: 100');
     //build discord roles update request
     $headers = discord_right_sync_discord_header();
     $headers['Content-Type'] = 'application/json';
@@ -400,6 +401,7 @@ function discord_right_sync_patch_querry_discord($path,$content)
         'roles' => $content
     ));
     $response = Unirest\Request::patch('https://discordapp.com/api/' . $path, $headers, $body);
+	//add_task_log($task, 'Debug: 101');
     return $response;
 }
        
@@ -409,18 +411,23 @@ function discord_right_sync_roles($task = NULL)
     require_once UNIREST;
     require_once MYBB_ROOT . '/inc/functions_task.php';
     
-    if ($mybb->settings['drs_setting_ratelimit_reset'] > time()) 
+    //add_task_log($task, 'Debug: Time: '.htmlspecialchars($mybb->settings['drs_setting_ratelimit_reset']).' > '.htmlspecialchars(time()).'(success)');
+    if ($mybb->settings['drs_setting_ratelimit_reset'] > time())
+	{
+		//add_task_log($task, 'Debug: 4');
         return; //wait with new reqeust till the api rate limit resets
-   
+	}
+	//add_task_log($task, 'Debug: 5');
     $user_roles = array();
     //get all mybb users with discord name field
     $query = $db->query("
         SELECT `uid`,`usergroup`,`additionalgroups`,`fid" . (int)$mybb->settings['drs_setting_user_fid'] . "`
         FROM `" . TABLE_PREFIX . "users` AS u
         INNER JOIN `" . TABLE_PREFIX . "userfields` AS uf ON (u.`uid`=uf.`ufid`)
-        WHERE uf.`fid" . (int)$mybb->settings['drs_setting_user_fid'] . "` IS NOT NULL");
+        WHERE uf.`fid" . (int)$mybb->settings['drs_setting_user_fid'] . "` <> ''");
     while ($user = $db->fetch_array($query))
     {
+		//add_task_log($task, 'Debug: 6');
         //join all user usergroups
         $usergroup_string = $user['usergroup'];
         if (!empty($user['additionalgroups'])) 
@@ -446,7 +453,7 @@ function discord_right_sync_roles($task = NULL)
                 {
                     //delete user field content
                      $db->update_query('userfields', array("fid".(int)$mybb->settings['drs_setting_user_fid'] => "NULL"), '`ufid` = ' . (int)$user['uid'],"",true);  
-                      add_task_log($task, 'ERROR: Invalid Discord Name: '.htmlspecialchars($user_d_name).' (deleted)');      
+                      add_task_log($task, 'ERROR: Invalid Discord Name: '.htmlspecialchars($user_d_name).' + '.htmlspecialchars($user).' (deleted)');      
                 }
                 continue;
             }
@@ -459,12 +466,18 @@ function discord_right_sync_roles($task = NULL)
         }
     }
     $query->free_result;
-    
+    //add_task_log($task, 'Debug: 7');
     //get all discord members with their roles
     $response = discord_right_sync_get_querry_discord('guilds/' . $mybb->settings['drs_setting_guild_id'] . '/members?limit=1000');
+	//add_task_log($task, 'Response: '.htmlspecialchars($response->code).'');
     if($response->code != 200)
+	{
+        //add_task_log($task, 'Debug: Response: '.htmlspecialchars($response->code).' (success)');
         return false;
-        
+    }
+	
+    //add_task_log($task, 'Debug: 8');
+
     foreach($response->body as $d_user_obj)
     {
         $user_d_name = $d_user_obj->user->username . '#' . $d_user_obj->user->discriminator;
@@ -475,7 +488,7 @@ function discord_right_sync_roles($task = NULL)
     }
     unset($response);
     
-    
+    //add_task_log($task, 'Debug: 9');
     $controlled_groups = array(); //controlled groups by mybb
     // Read the usergroups cache
     $usergroups = $cache->read("usergroups");
@@ -520,30 +533,50 @@ function discord_right_sync_roles($task = NULL)
         //check if roles have changed
         if (!empty($add_role) OR !empty($remove_role))
         {
-            if (!empty($add_role)) 
+            if (!empty($add_role))
+			{
+			    add_task_log($task, 'Succes: Add role');
                 $complete_roles = array_merge($complete_roles, $add_role);
-                
-            if (!empty($remove_role)) 
+            }
+			
+            if (!empty($remove_role))
+			{
+			    add_task_log($task, 'Succes: Remove role');
                 $complete_roles = array_diff($complete_roles, $remove_role);
-                
+            }
+			
             $complete_roles = array_unique($complete_roles);
             $complete_roles = array_values($complete_roles);
             
             //patch discord roles
+			
+			//add_task_log($task, 'Debug: 99 '.htmlspecialchars($mybb->settings['drs_setting_guild_id']).' (success)');
+			//add_task_log($task, 'Debug: 99 '.htmlspecialchars($data['d_id']).' (success)');			
+			//add_task_log($task, 'Debug: 99 '.htmlspecialchars($complete_roles).' (success)');
+			
             $response = discord_right_sync_patch_querry_discord('guilds/' . $mybb->settings['drs_setting_guild_id'] . '/members/' . $data['d_id'],$complete_roles);
+            //add_task_log($task, 'Debug: Response X-RateLimit-Reset: '.htmlspecialchars($response->headers['X-RateLimit-Reset']).' (success)');
+			//add_task_log($task, 'Debug: Response code: '.htmlspecialchars($response->code).' (success)');
+			//add_task_log($task, 'Debug: X-RateLimit-Remaining Response: '.htmlspecialchars($response->headers['X-RateLimit-Remaining']).' - (success)');
+			//add_task_log($task, 'Debug: X-RateLimit-Limit: '.htmlspecialchars($response->headers['X-RateLimit-Limit']).' - (success)');
+			//add_task_log($task, 'Debug: X-RateLimit-Remaining: '.htmlspecialchars($response->headers['X-RateLimit-Remaining']).' - (success)');
+			//add_task_log($task, 'Debug: X-RateLimit-Bucket: '.htmlspecialchars($response->headers['X-RateLimit-Bucket']).' - (success)');
             if ($response->code == 204)
             {
+                add_task_log($task, 'Debug: Response: '.htmlspecialchars($response->code).' (success)');
                 // success
             }
             if (isset($response->headers['X-RateLimit-Reset'])) //update reset time
             {
-                $db->update_query("settings", array(
-                    'value' => (int)$response->headers['X-RateLimit-Reset']
-                ) , "name = 'drs_setting_ratelimit_reset'");
-            }
-            if ($response->headers['X-RateLimit-Remaining'] == 0) //no more Querries allowed
-            {
+				//add_task_log($task, 'Debug: 10');
+                $db->update_query("settings", array('value' => (int)$response->headers['X-RateLimit-Reset']) , "name = 'drs_setting_ratelimit_reset'");
+				
+				if ($response->headers['X-RateLimit-Remaining'] == 0) //no more Querries allowed
+				{  
+                //add_task_log($task, 'Debug: 11');
+				add_task_log($task, 'Debug: X-RateLimit-Remaining Response: '.htmlspecialchars($response->headers['X-RateLimit-Remaining']).' - (success)');
                 return false;
+				}
             }
         }
     }
